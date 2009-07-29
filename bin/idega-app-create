@@ -1,0 +1,149 @@
+#/bin/sh
+
+# The tomcat has been prepped for this script specifically I placed markers in config files to be replaced during the setup process in this script
+#TODO create database with script and restart apache or reload config files
+
+printf '################################################################################################\n'
+printf '# A script to setup a modified tomcat server with a mysql database and the IdegaWeb Lucid webapp.\n'
+printf '# By Eirikur Hrafnsson, eiki@idega.com, Idega Software 2008\n'
+printf '################################################################################################\n'
+printf '\n'
+
+
+read -p 'Enter the servers domain name (without www.) : ' SERVERNAME
+#SERVERNAME=$1
+
+cat ~/tomcat/conf/virtualhosts.conf | grep ProxyPass
+printf '\n'
+printf 'These are used AJP ports choose a port number that is not in use.'
+
+read -p 'Enter the AJP connector port number (93xx) : ' AJPPORT
+#AJPPORT=$2
+
+#TODO support external database, ask for servername as well
+read -p 'Enter the MySQL database name : ' DATABASENAME
+read -p 'Enter the database user : ' DBUSER
+read -p 'Enter the database users password : ' DBPASSWORD
+
+#Set the default tomcat admin and manager password. The username is "admin"
+read -p 'Enter tomcat admin password to use: ' TOMCATADMINPASSWORD
+
+#Set the webapp to use
+read -p 'Enter webapp name to use (example lucid) to use: ' WEBAPPNAME
+read -p 'Enter webapp version to use (example 4.1.3-SNAPSHOT) to use: ' WEBAPPVERSION
+
+
+TOMCATVERSION=6.0.20
+TOMCATFOLDERNAME='idegaweb-tomcat-'$TOMCATVERSION
+TOMCATARCHIVE=$TOMCATFOLDERNAME'.tgz'
+TOMCATSFOLDER=~/tomcat
+
+#tomcat/conf/server.xml
+SHUTDOWNPORT=$(($AJPPORT-300))
+
+#tomcat/conf/Catalina/localhost/Root.xml
+#TODO make a random username and password
+#DATABASENAME=$SERVERNAME
+#DBUSER=idegaweb
+#DBPASSWORD=r4pp3rs0n
+
+
+#tomcat/conf/virtualhost.conf
+THESERVERNAME=$SERVERNAME
+
+#tomcats/conf/virtualhosts.conf
+VIRTUALHOSTSCONFIGFILEPATH=~/tomcat/conf/virtualhosts.conf
+VIRTUALHOSTSCONFIGTEMPFILEPATH=~/tomcat/conf/virtualhosts.conf.tmp
+
+####
+# DO STUFF!
+####
+
+#Create the database and set access rights
+CREATEDATABASEFILENAME=$SERVERNAME'-createdatabase.sql'
+CREATEDATABASETEMPFILENAME=$SERVERNAME'-createdatabase.sql.tmp'
+cp createdatabase.sql $CREATEDATABASEFILENAME
+
+replace DATABASENAME $DATABASENAME < $CREATEDATABASEFILENAME > $CREATEDATABASETEMPFILENAME
+mv $CREATEDATABASETEMPFILENAME $CREATEDATABASEFILENAME
+replace DBUSER $DBUSER < $CREATEDATABASEFILENAME > $CREATEDATABASETEMPFILENAME
+mv $CREATEDATABASETEMPFILENAME $CREATEDATABASEFILENAME
+replace DBPASSWORD $DBPASSWORD < $CREATEDATABASEFILENAME > $CREATEDATABASETEMPFILENAME
+mv $CREATEDATABASETEMPFILENAME $CREATEDATABASEFILENAME
+
+printf '\n'
+printf 'Enter MySQL root user password'
+printf '\n'
+mysql -uroot -p < $CREATEDATABASEFILENAME
+printf 'Database created'
+printf '\n'
+
+#Untar,unzip and rename the custom tomcat archive
+cd $TOMCATSFOLDER
+tar zxvf $TOMCATARCHIVE
+mv $TOMCATFOLDERNAME $SERVERNAME
+
+# Configuration starts, replacing values
+# Todo autogenerate port numbers from a last port used (store in a file or as a system variable)
+
+#Change server.xml
+SERVERXMLFILEPATH=$SERVERNAME'/conf/server.xml'
+SERVERXMLTEMPFILEPATH=$SERVERNAME'/conf/server.xml.tmp'
+
+replace AJPPORT $AJPPORT < $SERVERXMLFILEPATH > $SERVERXMLTEMPFILEPATH
+mv $SERVERXMLTEMPFILEPATH $SERVERXMLFILEPATH
+replace SHUTDOWNPORT $SHUTDOWNPORT < $SERVERXMLFILEPATH > $SERVERXMLTEMPFILEPATH
+mv $SERVERXMLTEMPFILEPATH $SERVERXMLFILEPATH
+
+
+#Change ROOT.xml
+ROOTXMLFILEPATH=$SERVERNAME'/conf/Catalina/localhost/ROOT.xml'
+ROOTXMLTEMPFILEPATH=$SERVERNAME'/conf/Catalina/localhost/ROOT.xml.tmp'
+
+replace DATABASENAME $DATABASENAME < $ROOTXMLFILEPATH > $ROOTXMLTEMPFILEPATH
+mv $ROOTXMLTEMPFILEPATH $ROOTXMLFILEPATH
+replace DBUSER $DBUSER < $ROOTXMLFILEPATH > $ROOTXMLTEMPFILEPATH
+mv $ROOTXMLTEMPFILEPATH $ROOTXMLFILEPATH
+replace DBPASSWORD $DBPASSWORD < $ROOTXMLFILEPATH > $ROOTXMLTEMPFILEPATH
+mv $ROOTXMLTEMPFILEPATH $ROOTXMLFILEPATH
+
+#Change virtualhost.conf
+VIRTUALHOSTFILEPATH=$SERVERNAME'/conf/virtualhost.conf'
+VIRTUALHOSTTEMPFILEPATH=$SERVERNAME'/conf/virtualhost.conf.tmp'
+
+replace THESERVERNAME $THESERVERNAME < $VIRTUALHOSTFILEPATH > $VIRTUALHOSTTEMPFILEPATH
+mv $VIRTUALHOSTTEMPFILEPATH $VIRTUALHOSTFILEPATH
+
+replace AJPPORT $AJPPORT < $VIRTUALHOSTFILEPATH > $VIRTUALHOSTTEMPFILEPATH
+mv $VIRTUALHOSTTEMPFILEPATH $VIRTUALHOSTFILEPATH
+
+#Append this servers virtualhost.conf to the virtualhosts.conf for apache
+cat $VIRTUALHOSTFILEPATH >> $VIRTUALHOSTSCONFIGFILEPATH
+
+#Change tomcat-users.xml
+TOMCATUSERSFILEPATH=$SERVERNAME'/conf/tomcat-users.xml'
+TOMCATUSERSTEMPFILEPATH=$SERVERNAME'/conf/tomcat-users.xml.tmp'
+
+replace TOMCATADMINPASSWORD $TOMCATADMINPASSWORD < $TOMCATUSERSFILEPATH > $TOMCATUSERSTEMPFILEPATH
+mv $TOMCATUSERSTEMPFILEPATH $TOMCATUSERSFILEPATH
+
+
+#Change update.sh
+UPDATEFILEPATH=$SERVERNAME'/wars/update.sh'
+UPDATETEMPFILEPATH=$SERVERNAME'/wars/update.sh.tmp'
+
+replace WEBAPPNAME $WEBAPPNAME < $UPDATEFILEPATH > $UPDATETEMPFILEPATH
+mv $UPDATETEMPFILEPATH $UPDATEFILEPATH
+
+#Get the webapp war and startup
+cd $SERVERNAME/wars
+./update.sh $WEBAPPVERSION
+
+#Reload config files without severing connections to running processes
+#TODO MAKE SUDOERS WORK
+echo 'NOW restart apache manually with : apachectl graceful'
+#sudo apachectl graceful
+
+
+echo 'Done setting up and now starting the tomcat server: '$SERVERNAME
+
