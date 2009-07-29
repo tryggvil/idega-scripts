@@ -1,0 +1,92 @@
+#!/bin/sh
+
+TOMCATDIR=`pwd`
+
+usage()
+{
+cat << EOF
+
+   Usage: $0 VERSION [options]
+
+   A script to update an existing idega app.
+
+ OPTIONS:
+   -h      		Show this message
+   -s      		(Use SSH to fetch war update)
+EOF
+}
+
+if [ $1 == "-s" ]; then
+	VERSION=$2
+elif [ $2="-s" ]; then
+	VERSION=$1
+else
+	VERSION=$1
+fi
+
+#SERVERNAME=
+#AJPPORT=
+USE_SSH=0
+VERBOSE=
+while getopts “hs” OPTION
+do
+     case $OPTION in
+         h)
+             usage
+             exit 1
+             ;;
+         s)
+             USE_SSH=1
+             ;;
+         ?)
+             usage
+             exit
+             ;;
+     esac
+done
+
+
+if [ -e idega.properties ]; then
+	WEBAPPNAME=`sed '/^\#/d' idega.properties | grep 'artifactId'  | tail -n 1 | sed 's/^.*=//'`
+	WEBAPPGROUP=`sed '/^\#/d' idega.properties | grep 'groupId'  | tail -n 1 | sed 's/^.*=//'`
+	if [[ -z $VERSION ]]; then
+		printf "Updating app in directory $TOMCATDIR\n"
+		printf "This app has installed the app '$WEBAPPNAME'\n"
+		read -p "What new version do you want to update with : " VERSION
+	fi
+	#WEBAPPGROUP="com.idega.webapp.custom"
+else
+	echo "You have to be inside a tomcat folder with idega.properties"
+	exit 0
+fi
+
+if [ ! -e $TOMCATDIR/wars ]; then
+	mkdir cd $TOMCATDIR/wars
+fi
+
+cd $TOMCATDIR/../
+
+WARFILENAME=$WEBAPPNAME-$VERSION.war
+if [ ! -e $WARFILENAME ]; then
+	if [ -z $USE_SSH ]; then
+		echo "Using Maven to fetch $WARFILENAME\n"
+		mvn-fetch-artifact -g $WEBAPPGROUP -a $WEBAPPNAME -v $VERSION -t war
+	else
+		echo "Using SSH to fetch $WARFILENAME\n"
+		scp idegaweb@build.idega.is:/home/idegaweb/platform4/$WEBAPPGROUP/$WEBAPPNAME/target/$WEBAPPNAME-$VERSION.war .	
+	fi
+fi
+cp $WARFILENAME $TOMCATDIR/wars/ROOTNEW.war
+
+cd $TOMCATDIR/bin/
+./shutdown.sh
+
+cd $TOMCATDIR/wars/
+cp ROOT.war ROOT.war.oldbak
+mv ROOTNEW.war ROOT.war
+rm -Rf $TOMCATDIR/webapps/ROOT
+rm -f $TOMCATDIR/webapps/ROOT.war
+cp ROOT.war $TOMCATDIR/webapps/
+cd $TOMCATDIR/bin/
+./startup.sh
+echo "Updated webapp $WEBAPPNAME war to version : $VERSION"

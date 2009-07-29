@@ -1,0 +1,61 @@
+#!/usr/bin/ruby -w
+require 'ftools'
+require 'optparse'
+
+def printHelp(options)
+	puts options
+	exit 0 
+end
+
+setup = {:outputDirectory=>"."}
+opt = nil
+
+ARGV.options {
+  |opt|
+
+  opt.banner = "Usage:\n\tmvnfetch.rb [options]"
+
+  opt.on("Options:\n")
+  opt.on("-a artifactId", "--artifactId", String, "Maven artifactId [REQUIRED]") { |setup['artifactId']|}
+  opt.on("-g groupId", "--groupId", String, "Maven groupId [REQUIRED]") { |setup['groupId']|}
+  opt.on("-v version", "--version", String, "Maven version number [REQUIRED]") { |setup['version']|}
+  opt.on("-t type", "--type", String, "File Type [REQUIRED]") { |setup['type']|}
+  
+  opt.on("-o outputDirectory", "--outputDirectory", String, "Directory to write file to [OPTIONAL (default current)]") { |setup['outputDirectory']|}
+  opt.on("-h", "--help", "This text") { printHelp(opt) }
+
+  opt.parse!
+
+}
+
+artifactId = setup['artifactId']
+groupId = setup['groupId']
+version = setup['version']
+type=setup['type']
+outputDirectory=setup['outputDirectory']
+fileName="#{artifactId}-#{version}.#{type}"
+
+if(artifactId == nil || groupId == nil || version == nil || type == nil)
+	printHelp(opt)
+end
+
+my_file = File.new(".mvnfetch.xml", "w+")
+my_file.puts "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd\">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>none</groupId>
+  <artifactId>none</artifactId>
+  <version>1.0</version>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency>
+      <groupId>#{groupId}</groupId>
+      <artifactId>#{artifactId}</artifactId>
+      <version>#{version}</version>
+	  <type>#{type}</type>
+    </dependency>
+  </dependencies>
+</project>"
+my_file.close
+#system("mvn -f .mvnfetch.xml dependency:resolve")
+system("mvn -f .mvnfetch.xml dependency:copy-dependencies -DoutputDirectory=#{outputDirectory} -DoverWriteSnapshots=true")
+File.delete(".mvnfetch.xml")
